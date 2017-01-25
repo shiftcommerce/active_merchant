@@ -50,6 +50,12 @@ module ActiveMerchant #:nodoc:
         commit 'SetExpressCheckout', build_setup_request('Order', money, options)
       end
 
+      def verify_address(options = {})
+        requires!(options, :email, :address)
+
+        commit 'VerifyAddress', build_verify_address_request(options)
+      end
+
       def details_for(token)
         commit 'GetExpressCheckoutDetails', build_get_details_request(token)
       end
@@ -258,6 +264,19 @@ module ActiveMerchant #:nodoc:
           end
         end
 
+        xml.target!
+      end
+
+      def build_verify_address_request(options)
+        xml = Builder::XmlMarkup.new :indent => 2
+        xml.tag! 'AddressVerifyReq', 'xmlns' => PAYPAL_NAMESPACE do
+          xml.tag! 'AddressVerifyRequest', 'xmlns' => PAYPAL_NAMESPACE do
+            xml.tag! 'Email', options[:email]
+            xml.tag! 'Street', options[:address][:address1]
+            xml.tag! 'Zip', options[:address][:zip]
+
+          end
+        end
         xml.target!
       end
 

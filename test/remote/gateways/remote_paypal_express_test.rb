@@ -3,9 +3,9 @@ require 'test_helper'
 class PaypalExpressTest < Test::Unit::TestCase
   def setup
     Base.mode = :test
-    
+
     @gateway = PaypalExpressGateway.new(fixtures(:paypal_certificate))
-  
+
     @options = {
       :order_id => '230000',
       :email => 'buyer@jadedpallet.com',
@@ -22,7 +22,7 @@ class PaypalExpressTest < Test::Unit::TestCase
       :cancel_return_url => 'http://example.com/cancel'
     }
   end
-  
+
   def test_set_express_authorization
     @options.update(
       :return_url => 'http://example.com',
@@ -34,7 +34,7 @@ class PaypalExpressTest < Test::Unit::TestCase
     assert response.test?
     assert !response.params['token'].blank?
   end
-  
+
   def test_set_express_purchase
     @options.update(
       :return_url => 'http://example.com',
@@ -57,5 +57,33 @@ class PaypalExpressTest < Test::Unit::TestCase
     assert response.success?
     assert response.test?
     assert !response.params['token'].blank?
+  end
+
+  def test_verify_address_negative
+    @options.update(
+      :email => 'buyer@jadedpallet.com',
+      :address => {
+        :address1 => '1234 Penny Lane',
+        :zip => '23456'
+      }
+    )
+    response = @gateway.verify_address(@options)
+    assert response.success?
+    assert response.test?
+    assert !response.params['confirmation_code'].blank?
+  end
+  def test_verify_address_positive
+    @options.update(
+      :email => 'gary.taylor@hismessages.com',
+      :address => {
+        :address1 => '26 Reginald Road South',
+        :zip => 'DE21 6ND'
+      }
+    )
+    gateway = PaypalExpressGateway.new(fixtures(:paypal_signature))
+    response = gateway.verify_address(@options)
+    assert response.success?
+    assert response.test?
+    assert !response.params['confirmation_code'].blank?
   end
 end
