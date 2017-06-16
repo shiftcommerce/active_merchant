@@ -34,6 +34,8 @@ module ActiveMerchant #:nodoc:
 
       E4_BRANDS = BRANDS.merge({:mastercard => "Mastercard"})
 
+      DEFAULT_ECI = "07"
+
       self.supported_cardtypes = BRANDS.keys
       self.supported_countries = ["CA", "US"]
       self.default_currency = "USD"
@@ -129,6 +131,11 @@ module ActiveMerchant #:nodoc:
         commit(:store, build_store_request(credit_card, options), credit_card)
       end
 
+      def verify_credentials
+        response = void("0")
+        response.message != "Unauthorized Request. Bad or missing credentials."
+      end
+
       def supports_scrubbing?
         true
       end
@@ -221,14 +228,17 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_credit_card(xml, credit_card, options)
-
         if credit_card.respond_to?(:track_data) && credit_card.track_data.present?
           xml.tag! "Track1", credit_card.track_data
+          xml.tag! "Ecommerce_Flag", "R"
         else
           xml.tag! "Card_Number", credit_card.number
           xml.tag! "Expiry_Date", expdate(credit_card)
           xml.tag! "CardHoldersName", credit_card.name
           xml.tag! "CardType", card_type(credit_card.brand)
+
+          eci = (credit_card.respond_to?(:eci) ? credit_card.eci : nil) || options[:eci] || DEFAULT_ECI
+          xml.tag! "Ecommerce_Flag", eci
 
           add_credit_card_verification_strings(xml, credit_card, options)
         end
@@ -251,8 +261,6 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_network_tokenization_credit_card(xml, credit_card)
-        xml.tag!("Ecommerce_Flag", credit_card.eci)
-
         case card_brand(credit_card).to_sym
         when :visa
           xml.tag!("XID", credit_card.transaction_id) if credit_card.transaction_id
@@ -270,7 +278,6 @@ module ActiveMerchant #:nodoc:
       def add_card_authentication_data(xml, options)
         xml.tag! "CAVV", options[:cavv]
         xml.tag! "XID", options[:xid]
-        xml.tag! "Ecommerce_Flag", options[:eci]
       end
 
       def add_credit_card_token(xml, store_authorization)

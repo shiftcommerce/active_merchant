@@ -65,11 +65,11 @@ module ActiveMerchant #:nodoc:
 
       class_attribute :secondary_test_url, :secondary_live_url
 
-      self.test_url = "https://orbitalvar1.paymentech.net/authorize"
-      self.secondary_test_url = "https://orbitalvar2.paymentech.net/authorize"
+      self.test_url = "https://orbitalvar1.chasepaymentech.com/authorize"
+      self.secondary_test_url = "https://orbitalvar2.chasepaymentech.com/authorize"
 
-      self.live_url = "https://orbital1.paymentech.net/authorize"
-      self.secondary_live_url = "https://orbital2.paymentech.net/authorize"
+      self.live_url = "https://orbital1.chasepaymentech.com/authorize"
+      self.secondary_live_url = "https://orbital2.chasepaymentech.com/authorize"
 
       self.supported_countries = ["US", "CA"]
       self.default_currency = "CAD"
@@ -86,6 +86,7 @@ module ActiveMerchant #:nodoc:
         "AUD" => '036',
         "BRL" => '986',
         "CAD" => '124',
+        "CLP" => '152',
         "CZK" => '203',
         "DKK" => '208',
         "HKD" => '344',
@@ -106,6 +107,7 @@ module ActiveMerchant #:nodoc:
         "AUD" => '2',
         "BRL" => '2',
         "CAD" => '2',
+        "CLP" => '2',
         "CZK" => '2',
         "DKK" => '2',
         "HKD" => '2',
@@ -295,6 +297,19 @@ module ActiveMerchant #:nodoc:
         commit(order, :delete_customer_profile)
       end
 
+      def supports_scrubbing?
+        true
+      end
+
+      def scrub(transcript)
+        transcript.
+          gsub(%r((<OrbitalConnectionUsername>).+(</OrbitalConnectionUsername>)), '\1[FILTERED]\2').
+          gsub(%r((<OrbitalConnectionPassword>).+(</OrbitalConnectionPassword>)), '\1[FILTERED]\2').
+          gsub(%r((<AccountNum>).+(</AccountNum>)), '\1[FILTERED]\2').
+          gsub(%r((<CardSecVal>).+(</CardSecVal>)), '\1[FILTERED]\2').
+          gsub(%r((<MerchantID>).+(</MerchantID>)), '\1[FILTERED]\2')
+      end
+
       private
 
       def authorization_string(*args)
@@ -328,6 +343,15 @@ module ActiveMerchant #:nodoc:
         xml.tag! :SDMerchantPhone, soft_desc.merchant_phone           if soft_desc.merchant_phone
         xml.tag! :SDMerchantURL, soft_desc.merchant_url               if soft_desc.merchant_url
         xml.tag! :SDMerchantEmail, soft_desc.merchant_email           if soft_desc.merchant_email
+      end
+
+      def add_soft_descriptors_from_hash(xml, soft_desc)
+        xml.tag! :SDMerchantName, soft_desc[:merchant_name] || nil
+        xml.tag! :SDProductDescription, soft_desc[:product_description] || nil
+        xml.tag! :SDMerchantCity, soft_desc[:merchant_city] || nil
+        xml.tag! :SDMerchantPhone, soft_desc[:merchant_phone] || nil
+        xml.tag! :SDMerchantURL, soft_desc[:merchant_url] || nil
+        xml.tag! :SDMerchantEmail, soft_desc[:merchant_email] || nil
       end
 
       def add_address(xml, creditcard, options)
@@ -402,10 +426,12 @@ module ActiveMerchant #:nodoc:
         #   Do not submit the attribute at all.
         # - http://download.chasepaymentech.com/docs/orbital/orbital_gateway_xml_specification.pdf
         unless creditcard.nil?
-          if %w( visa discover ).include?(creditcard.brand)
-            xml.tag! :CardSecValInd, (creditcard.verification_value? ? '1' : '9')
+          if creditcard.verification_value?
+            if %w( visa discover ).include?(creditcard.brand)
+              xml.tag! :CardSecValInd, '1'
+            end
+            xml.tag! :CardSecVal,  creditcard.verification_value
           end
-          xml.tag! :CardSecVal,  creditcard.verification_value if creditcard.verification_value?
         end
       end
 
@@ -543,6 +569,8 @@ module ActiveMerchant #:nodoc:
 
             if parameters[:soft_descriptors].is_a?(OrbitalSoftDescriptors)
               add_soft_descriptors(xml, parameters[:soft_descriptors])
+            elsif parameters[:soft_descriptors].is_a?(Hash)
+              add_soft_descriptors_from_hash(xml, parameters[:soft_descriptors])
             end
 
             set_recurring_ind(xml, parameters)
