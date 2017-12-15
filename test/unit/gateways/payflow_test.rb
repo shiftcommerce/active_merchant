@@ -189,7 +189,7 @@ class PayflowTest < Test::Unit::TestCase
   end
 
   def test_supported_countries
-    assert_equal ['US', 'CA', 'SG', 'AU'], PayflowGateway.supported_countries
+    assert_equal ['US', 'CA', 'NZ', 'AU'], PayflowGateway.supported_countries
   end
 
   def test_supported_card_types
@@ -399,6 +399,17 @@ class PayflowTest < Test::Unit::TestCase
     response = @gateway.purchase(100, @credit_card, @options)
     assert_success response
     assert_equal '2014-06-25 09:33:41', response.params['transaction_time']
+  end
+
+  def test_paypal_nvp_option_sends_header
+    headers = @gateway.send(:build_headers, 1)
+    assert_not_include headers, 'PAYPAL-NVP'
+
+    old_use_paypal_nvp = PayflowGateway.use_paypal_nvp
+    PayflowGateway.use_paypal_nvp = true
+    headers = @gateway.send(:build_headers, 1)
+    assert_equal 'Y', headers['PAYPAL-NVP']
+    PayflowGateway.use_paypal_nvp = old_use_paypal_nvp
   end
 
   private
@@ -621,7 +632,7 @@ class PayflowTest < Test::Unit::TestCase
 </XMLPayResponse>
     XML
   end
-  
+
   def assert_three_d_secure(xml_doc, buyer_auth_result_path)
     assert_equal 'Y', REXML::XPath.first(xml_doc, "#{buyer_auth_result_path}/Status").text
     assert_equal 'QvDbSAxSiaQs241899E0', REXML::XPath.first(xml_doc, "#{buyer_auth_result_path}/AuthenticationId").text

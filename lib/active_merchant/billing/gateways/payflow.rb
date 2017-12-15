@@ -48,6 +48,11 @@ module ActiveMerchant #:nodoc:
         authorize(0, payment, options)
       end
 
+      def verify_credentials
+        response = void("0")
+        response.params["result"] != "26"
+      end
+
       # Adds or modifies a recurring Payflow profile.  See the Payflow Pro Recurring Billing Guide for more details:
       # https://www.paypal.com/en_US/pdf/PayflowPro_RecurringBilling_Guide.pdf
       #
@@ -87,6 +92,7 @@ module ActiveMerchant #:nodoc:
       def express
         @express ||= PayflowExpressGateway.new(@options)
       end
+
 
       private
       def build_sale_or_authorization_request(action, money, funding_source, options)
@@ -146,6 +152,7 @@ module ActiveMerchant #:nodoc:
               xml.tag! 'FreightAmt', options[:freightamt] unless options[:freightamt].blank?
               xml.tag! 'DutyAmt', options[:dutyamt] unless options[:dutyamt].blank?
               xml.tag! 'DiscountAmt', options[:discountamt] unless options[:discountamt].blank?
+              xml.tag! 'EMail', options[:email] unless options[:email].nil?
 
               billing_address = options[:billing_address] || options[:address]
               add_address(xml, 'BillTo', billing_address, options) if billing_address
