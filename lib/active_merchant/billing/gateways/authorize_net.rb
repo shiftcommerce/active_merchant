@@ -143,6 +143,8 @@ module ActiveMerchant
 
         if response.params["response_reason_code"] == INELIGIBLE_FOR_ISSUING_CREDIT_ERROR
           void(authorization, options)
+        else
+          response
         end
       end
 
@@ -165,7 +167,8 @@ module ActiveMerchant
             xml.transactionType('refundTransaction')
             xml.amount(amount(amount))
 
-            add_payment_source(xml, payment)
+            add_payment_source(xml, payment, :credit)
+            xml.refTransId(transaction_id_from(options[:transaction_id])) if options[:transaction_id]
             add_invoice(xml, 'refundTransaction', options)
             add_customer_data(xml, payment, options)
             add_settings(xml, payment, options)
@@ -372,7 +375,7 @@ module ActiveMerchant
         end
       end
 
-      def add_payment_source(xml, source)
+      def add_payment_source(xml, source, action = nil)
         return unless source
         if source.is_a?(String)
           add_token_payment_method(xml, source)
@@ -381,7 +384,7 @@ module ActiveMerchant
         elsif card_brand(source) == 'apple_pay'
           add_apple_pay_payment_token(xml, source)
         else
-          add_credit_card(xml, source)
+          add_credit_card(xml, source, action)
         end
       end
 
@@ -421,6 +424,12 @@ module ActiveMerchant
               xml.settingValue(options[:header_email_receipt])
             end
           end
+          if options[:test_request]
+            xml.setting do
+              xml.settingName("testRequest")
+              xml.settingValue("1")
+            end
+          end
         end
       end
 
@@ -448,7 +457,7 @@ module ActiveMerchant
         end
       end
 
-      def add_credit_card(xml, credit_card)
+      def add_credit_card(xml, credit_card, action)
         if credit_card.track_data
           add_swipe_data(xml, credit_card)
         else
@@ -459,7 +468,7 @@ module ActiveMerchant
               if credit_card.valid_card_verification_value?(credit_card.verification_value, credit_card.brand)
                 xml.cardCode(credit_card.verification_value)
               end
-              if credit_card.is_a?(NetworkTokenizationCreditCard)
+              if credit_card.is_a?(NetworkTokenizationCreditCard) && action != :credit
                 xml.cryptogram(credit_card.payment_cryptogram)
               end
             end
@@ -533,7 +542,7 @@ module ActiveMerchant
 
       def add_customer_data(xml, payment_source, options)
         xml.customer do
-          xml.id(options[:customer]) unless empty?(options[:customer]) || options[:customer] !~ /^\d+$/
+          xml.id(options[:customer]) unless empty?(options[:customer]) || options[:customer] !~ /^\w+$/
           xml.email(options[:email]) unless empty?(options[:email])
         end
 
@@ -553,13 +562,15 @@ module ActiveMerchant
 
         xml.billTo do
           first_name, last_name = names_from(payment_source, address, options)
+          state = state_from(address, options)
+          full_address = "#{address[:address1]} #{address[:address2]}".strip
+
           xml.firstName(truncate(first_name, 50)) unless empty?(first_name)
           xml.lastName(truncate(last_name, 50)) unless empty?(last_name)
-
           xml.company(truncate(address[:company], 50)) unless empty?(address[:company])
-          xml.address(truncate(address[:address1], 60))
+          xml.address(truncate(full_address, 60))
           xml.city(truncate(address[:city], 40))
-          xml.state(empty?(address[:state]) ? 'n/a' : truncate(address[:state], 40))
+          xml.state(truncate(state, 40))
           xml.zip(truncate((address[:zip] || options[:zip]), 20))
           xml.country(truncate(address[:country], 60))
           xml.phoneNumber(truncate(address[:phone], 25)) unless empty?(address[:phone])
@@ -577,12 +588,12 @@ module ActiveMerchant
           else
             [address[:first_name], address[:last_name]]
           end
+          full_address = "#{address[:address1]} #{address[:address2]}".strip
 
           xml.firstName(truncate(first_name, 50)) unless empty?(first_name)
           xml.lastName(truncate(last_name, 50)) unless empty?(last_name)
-
           xml.company(truncate(address[:company], 50)) unless empty?(address[:company])
-          xml.address(truncate(address[:address1], 60))
+          xml.address(truncate(full_address, 60))
           xml.city(truncate(address[:city], 40))
           xml.state(truncate(address[:state], 40))
           xml.zip(truncate(address[:zip], 20))
@@ -708,6 +719,14 @@ module ActiveMerchant
           [(payment_source.first_name || first_name), (payment_source.last_name || last_name)]
         else
           [options[:first_name], options[:last_name]]
+        end
+      end
+
+      def state_from(address, options)
+        if ["US", "CA"].include?(address[:country])
+          address[:state] || 'NC'
+        else
+          address[:state] || 'n/a'
         end
       end
 
@@ -886,7 +905,7 @@ module ActiveMerchant
         if cim?(action) || (action == :verify_credentials)
           response[:result_code] == "Ok"
         else
-          response[:response_code] == APPROVED && TRANSACTION_ALREADY_ACTIONED.exclude?(response[:response_reason_code])
+          [APPROVED, FRAUD_REVIEW].include?(response[:response_code]) && TRANSACTION_ALREADY_ACTIONED.exclude?(response[:response_reason_code])
         end
       end
 

@@ -4,6 +4,7 @@ class RemoteWorldpayTest < Test::Unit::TestCase
 
   def setup
     @gateway = WorldpayGateway.new(fixtures(:world_pay_gateway))
+    @cftgateway = WorldpayGateway.new(fixtures(:world_pay_gateway_cft))
 
     @amount = 100
     @credit_card = credit_card('4111111111111111')
@@ -42,6 +43,7 @@ class RemoteWorldpayTest < Test::Unit::TestCase
     assert_success auth
     assert_equal 'SUCCESS', auth.message
     assert auth.authorization
+    sleep(40)
     assert capture = @gateway.capture(@amount, auth.authorization)
     assert_success capture
   end
@@ -50,12 +52,14 @@ class RemoteWorldpayTest < Test::Unit::TestCase
     assert auth = @gateway.authorize(@amount, @credit_card, @options)
     assert_success auth
     assert_equal 'SUCCESS', auth.message
+    sleep(40)
     assert capture = @gateway.capture(@amount, auth.authorization)
     assert_success capture
 
     assert reference = auth.authorization
     @options[:order_id] = generate_unique_id
     assert auth = @gateway.authorize(@amount, reference, @options)
+    sleep(40)
     assert capture = @gateway.capture(@amount, auth.authorization)
     assert_success capture
   end
@@ -64,6 +68,7 @@ class RemoteWorldpayTest < Test::Unit::TestCase
     assert auth = @gateway.authorize(@amount, @credit_card, @options)
     assert_success auth
     assert_equal 'SUCCESS', auth.message
+    sleep(40)
     assert capture = @gateway.capture(@amount, auth.authorization)
     assert_success capture
 
@@ -71,6 +76,7 @@ class RemoteWorldpayTest < Test::Unit::TestCase
     @options[:order_id] = generate_unique_id
     assert auth = @gateway.authorize(@amount, reference, @options)
     @options[:order_id] = generate_unique_id
+    sleep(40)
     assert capture = @gateway.purchase(@amount, auth.authorization, @options)
     assert_success capture
   end
@@ -99,6 +105,7 @@ class RemoteWorldpayTest < Test::Unit::TestCase
 
   def test_void
     assert_success(response = @gateway.authorize(@amount, @credit_card, @options))
+    sleep(40)
     assert_success (void = @gateway.void(response.authorization))
     assert_equal "SUCCESS", void.message
     assert void.params["cancel_received_order_code"]
@@ -121,6 +128,13 @@ class RemoteWorldpayTest < Test::Unit::TestCase
     assert_equal "IDR", result.params['amount_currency_code']
     assert_equal "12", result.params['amount_value']
     assert_equal "0", result.params['amount_exponent']
+  end
+
+  def test_authorize_three_decimal_currency
+    assert_success(result = @gateway.authorize(1234, @credit_card, @options.merge(:currency => 'OMR')))
+    assert_equal "OMR", result.params['amount_currency_code']
+    assert_equal "1234", result.params['amount_value']
+    assert_equal "3", result.params['amount_exponent']
   end
 
   def test_reference_transaction
@@ -161,6 +175,12 @@ class RemoteWorldpayTest < Test::Unit::TestCase
     assert_match %r{REFUSED}, response.message
   end
 
+  def test_successful_credit_on_cft_gateway
+    credit = @cftgateway.credit(@amount, @credit_card, @options)
+    assert_success credit
+    assert_equal "SUCCESS", credit.message
+  end
+
   def test_transcript_scrubbing
     transcript = capture_transcript(@gateway) do
       @gateway.purchase(@amount, @credit_card,  @options)
@@ -173,18 +193,22 @@ class RemoteWorldpayTest < Test::Unit::TestCase
 
 
   # Worldpay has a delay between asking for a transaction to be captured and actually marking it as captured
-  # These 2 tests work if you take the auth code, wait some time and then perform the next operation.
+  # These 2 tests work if you get authorizations from a purchase, wait some time and then perform the refund/void operation.
 
-  # def test_refund
+  # def get_authorization
   #   assert_success(response = @gateway.purchase(@amount, @credit_card, @options))
   #   assert response.authorization
-  #   refund = @gateway.refund(@amount, capture.authorization)
+  #   puts "auth: " + response.authorization
+  # end
+
+  # def test_refund
+  #   refund = @gateway.refund(@amount, 'replace_with_authorization')
   #   assert_success refund
   #   assert_equal "SUCCESS", refund.message
   # end
 
   # def test_void_fails_unless_status_is_authorised
-  #   response = @gateway.void("33d6dfa9726198d44a743488cf611d3b") # existing transaction in CAPTURED state
+  #   response = @gateway.void('replace_with_authorization') # existing transaction in CAPTURED state
   #   assert_failure response
   #   assert_equal "A transaction status of 'AUTHORISED' is required.", response.message
   # end

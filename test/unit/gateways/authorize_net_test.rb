@@ -563,6 +563,15 @@ class AuthorizeNetTest < Test::Unit::TestCase
     @gateway.refund(36.40, '2214269051#XXXX1234', force_full_refund_if_unsettled: true)
   end
 
+  def test_failed_full_refund_returns_failed_response_if_reason_code_is_not_unsettled_error
+    @gateway.expects(:ssl_post).returns(failed_refund_response)
+    @gateway.expects(:void).never
+
+    response = @gateway.refund(36.40, '2214269051#XXXX1234', force_full_refund_if_unsettled: true)
+    assert response.present?
+    assert_failure response
+  end
+
   def test_successful_store
     @gateway.expects(:ssl_post).returns(successful_store_response)
 
@@ -637,13 +646,65 @@ class AuthorizeNetTest < Test::Unit::TestCase
     end.respond_with(successful_authorize_response)
   end
 
+  def test_address_with_empty_billing_address
+    stub_comms do
+      @gateway.authorize(@amount, @credit_card)
+    end.check_request do |endpoint, data, headers|
+      parse(data) do |doc|
+        assert_equal "", doc.at_xpath("//billTo/address").content, data
+        assert_equal "", doc.at_xpath("//billTo/city").content, data
+        assert_equal "n/a", doc.at_xpath("//billTo/state").content, data
+        assert_equal "", doc.at_xpath("//billTo/zip").content, data
+        assert_equal "", doc.at_xpath("//billTo/country").content, data
+      end
+    end.respond_with(successful_authorize_response)
+  end
+
+  def test_address_with_address2_present
+    stub_comms do
+      @gateway.authorize(@amount, @credit_card, billing_address: {address1: '164 Waverley Street', address2: 'Apt 1234', country: 'US', state: 'CO', phone: '(555)555-5555', fax: '(555)555-4444'})
+    end.check_request do |endpoint, data, headers|
+      parse(data) do |doc|
+        assert_equal "CO", doc.at_xpath("//billTo/state").content, data
+        assert_equal "164 Waverley Street Apt 1234", doc.at_xpath("//billTo/address").content, data
+        assert_equal "US", doc.at_xpath("//billTo/country").content, data
+        assert_equal "(555)555-5555", doc.at_xpath("//billTo/phoneNumber").content
+        assert_equal "(555)555-4444", doc.at_xpath("//billTo/faxNumber").content
+      end
+    end.respond_with(successful_authorize_response)
+  end
+
+  def test_address_north_america_with_defaults
+    stub_comms do
+      @gateway.authorize(@amount, @credit_card, billing_address: {address1: '164 Waverley Street', country: 'US'})
+    end.check_request do |endpoint, data, headers|
+      parse(data) do |doc|
+        assert_equal "NC", doc.at_xpath("//billTo/state").content, data
+        assert_equal "164 Waverley Street", doc.at_xpath("//billTo/address").content, data
+        assert_equal "US", doc.at_xpath("//billTo/country").content, data
+      end
+    end.respond_with(successful_authorize_response)
+  end
+
   def test_address_outsite_north_america
     stub_comms do
-      @gateway.authorize(@amount, @credit_card, billing_address: {address1: '164 Waverley Street', country: 'DE', state: ''})
+      @gateway.authorize(@amount, @credit_card, billing_address: {address1: '164 Waverley Street', country: 'DE'})
     end.check_request do |endpoint, data, headers|
       parse(data) do |doc|
         assert_equal "n/a", doc.at_xpath("//billTo/state").content, data
         assert_equal "164 Waverley Street", doc.at_xpath("//billTo/address").content, data
+        assert_equal "DE", doc.at_xpath("//billTo/country").content, data
+      end
+    end.respond_with(successful_authorize_response)
+  end
+
+  def test_address_outsite_north_america_with_address2_present
+    stub_comms do
+      @gateway.authorize(@amount, @credit_card, billing_address: {address1: '164 Waverley Street', address2: 'Apt 1234', country: 'DE'})
+    end.check_request do |endpoint, data, headers|
+      parse(data) do |doc|
+        assert_equal "n/a", doc.at_xpath("//billTo/state").content, data
+        assert_equal "164 Waverley Street Apt 1234", doc.at_xpath("//billTo/address").content, data
         assert_equal "DE", doc.at_xpath("//billTo/country").content, data
       end
     end.respond_with(successful_authorize_response)
@@ -765,7 +826,7 @@ class AuthorizeNetTest < Test::Unit::TestCase
     @gateway.expects(:ssl_post).returns(fraud_review_response)
 
     response = @gateway.purchase(@amount, @credit_card)
-    assert_failure response
+    assert_success response
     assert response.fraud_review?
     assert_equal "Thank you! For security reasons your order is currently being reviewed", response.message
   end
@@ -847,9 +908,31 @@ class AuthorizeNetTest < Test::Unit::TestCase
     end.respond_with(successful_authorize_response)
   end
 
-  def test_dont_include_cust_id_for_non_numeric_values
+  def test_include_cust_id_for_word_character_values
+   stub_comms do
+      @gateway.purchase(@amount, @credit_card, customer: "4840_TT")
+    end.check_request do |endpoint, data, headers|
+      parse(data) do |doc|
+        assert_not_nil doc.at_xpath("//customer/id"), data
+        assert_equal "4840_TT", doc.at_xpath("//customer/id").content, data
+        assert_equal "1.00", doc.at_xpath("//transactionRequest/amount").content
+      end
+    end.respond_with(successful_authorize_response)
+  end
+
+  def test_dont_include_cust_id_for_email_addresses
    stub_comms do
       @gateway.purchase(@amount, @credit_card, customer: "bob@test.com")
+    end.check_request do |endpoint, data, headers|
+      doc = parse(data)
+      assert !doc.at_xpath("//customer/id"), data
+      assert_equal "1.00", doc.at_xpath("//transactionRequest/amount").content
+    end.respond_with(successful_authorize_response)
+  end
+
+  def test_dont_include_cust_id_for_phone_numbers
+   stub_comms do
+      @gateway.purchase(@amount, @credit_card, customer: "111-123-1231")
     end.check_request do |endpoint, data, headers|
       doc = parse(data)
       assert !doc.at_xpath("//customer/id"), data

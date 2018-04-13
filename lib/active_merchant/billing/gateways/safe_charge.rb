@@ -13,7 +13,7 @@ module ActiveMerchant #:nodoc:
       self.homepage_url = 'https://www.safecharge.com'
       self.display_name = 'SafeCharge'
 
-      VERSION = '4.0.4'
+      VERSION = '4.1.0'
 
       def initialize(options={})
         requires!(options, :client_login_id, :client_password)
@@ -22,7 +22,9 @@ module ActiveMerchant #:nodoc:
 
       def purchase(money, payment, options={})
         post = {}
-        add_transaction_data("Sale", post, money, options)
+        post[:sg_APIType] = 1 if options[:three_d_secure]
+        trans_type = options[:three_d_secure] ? "Sale3D" : "Sale"
+        add_transaction_data(trans_type, post, money, options)
         add_payment(post, payment)
         add_customer_details(post, payment, options)
 
@@ -40,8 +42,8 @@ module ActiveMerchant #:nodoc:
 
       def capture(money, authorization, options={})
         post = {}
-        add_transaction_data("Settle", post, money, options)
-        auth, transaction_id, token, exp_month, exp_year, _ = authorization.split("|")
+        auth, transaction_id, token, exp_month, exp_year, _, original_currency = authorization.split("|")
+        add_transaction_data("Settle", post, money, (options.merge!({currency: original_currency})))
         post[:sg_AuthCode] = auth
         post[:sg_TransactionID] = transaction_id
         post[:sg_CCToken] = token
@@ -53,8 +55,8 @@ module ActiveMerchant #:nodoc:
 
       def refund(money, authorization, options={})
         post = {}
-        add_transaction_data("Credit", post, money, options)
-        auth, transaction_id, token, exp_month, exp_year, _ = authorization.split("|")
+        auth, transaction_id, token, exp_month, exp_year, _, original_currency = authorization.split("|")
+        add_transaction_data("Credit", post, money, (options.merge!({currency: original_currency})))
         post[:sg_CreditType] = 2
         post[:sg_AuthCode] = auth
         post[:sg_TransactionID] = transaction_id
@@ -76,8 +78,8 @@ module ActiveMerchant #:nodoc:
 
       def void(authorization, options={})
         post = {}
-        auth, transaction_id, token, exp_month, exp_year, original_amount = authorization.split("|")
-        add_transaction_data("Void", post, (original_amount.to_f * 100), options)
+        auth, transaction_id, token, exp_month, exp_year, original_amount, original_currency = authorization.split("|")
+        add_transaction_data("Void", post, (original_amount.to_f * 100), (options.merge!({currency: original_currency})))
         post[:sg_CreditType] = 2
         post[:sg_AuthCode] = auth
         post[:sg_TransactionID] = transaction_id
@@ -117,6 +119,12 @@ module ActiveMerchant #:nodoc:
         post[:sg_ResponseFormat] = "4"
         post[:sg_Version] = VERSION
         post[:sg_ClientUniqueID] = options[:order_id] if options[:order_id]
+        post[:sg_UserID] = options[:user_id] if options[:user_id]
+        post[:sg_AuthType] = options[:auth_type] if options[:auth_type]
+        post[:sg_ExpectedFulfillmentCount] = options[:expected_fulfillment_count] if options[:expected_fulfillment_count]
+        post[:sg_WebsiteID] = options[:website_id] if options[:website_id]
+        post[:sg_IPAddress] = options[:ip] if options[:ip]
+        post[:sg_VendorID] = options[:vendor_id] if options[:vendor_id]
       end
 
       def add_payment(post, payment)
@@ -147,19 +155,30 @@ module ActiveMerchant #:nodoc:
 
         doc = Nokogiri::XML(xml)
         doc.root.xpath('*').each do |node|
-          response[node.name.underscore.downcase.to_sym] = node.text
+          if node.elements.size == 0
+            response[node.name.underscore.downcase.to_sym] = node.text
+          else
+            node.traverse do |childnode|
+              childnode_to_response(response, childnode)
+            end
+          end
         end
-
         response
       end
 
-      def childnode_to_response(response, node, childnode)
-        name = "#{node.name.downcase}_#{childnode.name.downcase}"
-        if name == 'payment_method_data' && !childnode.elements.empty?
-          response[name.to_sym] = Hash.from_xml(childnode.to_s).values.first
+      def childnode_to_response(response, childnode)
+        if childnode.elements.size == 0
+          element_name_to_symbol(response, childnode)
         else
-          response[name.to_sym] = childnode.text
+          childnode.traverse do |node|
+            element_name_to_symbol(response, node)
+          end
         end
+      end
+
+      def element_name_to_symbol(response, childnode)
+        name = "#{childnode.name.downcase}"
+        response[name.to_sym] = childnode.text
       end
 
       def commit(parameters)
@@ -194,7 +213,8 @@ module ActiveMerchant #:nodoc:
           response[:token],
           parameters[:sg_ExpMonth],
           parameters[:sg_ExpYear],
-          parameters[:sg_Amount]
+          parameters[:sg_Amount],
+          parameters[:sg_Currency]
         ].join("|")
       end
 
