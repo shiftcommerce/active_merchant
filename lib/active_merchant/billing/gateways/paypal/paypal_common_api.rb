@@ -596,7 +596,7 @@ module ActiveMerchant #:nodoc:
           xml.tag! 'n2:NotifyURL', options[:notify_url] unless options[:notify_url].blank?
 
           add_address(xml, 'n2:ShipToAddress', options[:shipping_address]) unless options[:shipping_address].blank?
-
+         
           add_payment_details_items_xml(xml, options, currency_code) unless options[:items].blank?
 
           add_express_only_payment_details(xml, options) if options[:express_request]
@@ -618,7 +618,7 @@ module ActiveMerchant #:nodoc:
 
       def add_express_only_payment_details(xml, options = {})
         add_optional_fields(xml,
-                            %w{n2:NoteText          n2:PaymentAction
+                            %w{n2:PayerInfo n2:NoteText          n2:PaymentAction
                                n2:TransactionId     n2:AllowedPaymentMethod
                                n2:PaymentRequestID  n2:SoftDescriptor  },
                             options)
@@ -641,12 +641,33 @@ module ActiveMerchant #:nodoc:
       end
 
       def endpoint_url
+        puts "endpoint url......."
+        puts test?.inspect
         URLS[test? ? :test : :live][@options[:signature].blank? ? :certificate : :signature]
       end
 
       def commit(action, request)
+
+        puts "IN THE COMMIT SECITON>>>>>>"
+        puts "ACTION>>>>"
+        puts action.inspect
+
+        puts "INITIAL REQUEST"
+        puts request.inspect
+        
+        puts "ENDPOINT URL>>>>>"
+        puts endpoint_url.inspect
+
+        puts "OPTIONS>>>"
+        puts @options[:headers].inspect
+        
+        puts "FINAL REQUEST?>>>>>"
+        puts build_request(request)
+
         response = parse(action, ssl_post(endpoint_url, build_request(request), @options[:headers]))
 
+        puts "********"
+        puts response.inspect
         build_response(successful?(response), message_from(response), response,
           :test => test?,
           :authorization => authorization_from(response),

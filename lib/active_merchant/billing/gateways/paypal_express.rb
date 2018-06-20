@@ -26,7 +26,8 @@ module ActiveMerchant #:nodoc:
         'TW' => 'zh_TW'
       }
 
-      self.test_redirect_url = 'https://www.sandbox.paypal.com/cgi-bin/webscr'
+      # self.test_redirect_url = 'https://www.sandbox.paypal.com/cgi-bin/webscr'
+      self.test_redirect_url = "https://www.sandbox.paypal.com/checkoutnow"
       self.supported_countries = ['US']
       self.homepage_url = 'https://www.paypal.com/cgi-bin/webscr?cmd=xpt/merchant/ExpressCheckoutIntro-outside'
       self.display_name = 'PayPal Express Checkout'
@@ -45,8 +46,11 @@ module ActiveMerchant #:nodoc:
       end
 
       def setup_order(money, options = {})
+        puts money.inspect
+        puts "options"
+        puts options.inspect
         requires!(options, :return_url, :cancel_return_url)
-
+        puts build_setup_request('Order', money, options).inspect
         commit 'SetExpressCheckout', build_setup_request('Order', money, options)
       end
 
@@ -137,14 +141,17 @@ module ActiveMerchant #:nodoc:
       def build_setup_request(action, money, options)
         currency_code = options[:currency] || currency(money)
         options[:payment_action] = action
-        options[:express_request] = true
+        # options[:express_request] = 
         options[:shipping_address] ||= options[:address]
-
+        
+        # options[:billing_address] ||= options[:address]
+        
         xml = Builder::XmlMarkup.new :indent => 2
         xml.tag! 'SetExpressCheckoutReq', 'xmlns' => PAYPAL_NAMESPACE do
           xml.tag! 'SetExpressCheckoutRequest', 'xmlns:n2' => EBAY_NAMESPACE do
             xml.tag! 'n2:Version', API_VERSION
             xml.tag! 'n2:SetExpressCheckoutRequestDetails' do
+              
               xml.tag! 'n2:ReturnURL', options[:return_url]
               xml.tag! 'n2:CancelURL', options[:cancel_return_url]
               if options[:max_amount]
@@ -167,6 +174,7 @@ module ActiveMerchant #:nodoc:
                 xml.tag! 'n2:LandingPage', options[:landing_page] || 'Billing'
               end
               xml.tag! 'n2:BuyerEmail', options[:email] unless options[:email].blank?
+              add_payer_info(xml, options)
 
               if options[:billing_agreement]
                 xml.tag! 'n2:BillingAgreementDetails' do
@@ -189,6 +197,7 @@ module ActiveMerchant #:nodoc:
               xml.tag! 'n2:CallbackURL', options[:callback_url] unless options[:callback_url].blank?
 
               add_payment_details(xml, money, currency_code, options)
+              
               if options[:shipping_options]
                 options[:shipping_options].each do |shipping_option|
                   xml.tag! 'n2:FlatRateShippingOptions' do
@@ -212,6 +221,24 @@ module ActiveMerchant #:nodoc:
         end
 
         xml.target!
+      end
+      
+      def add_payer_info(xml, options={})
+        puts "****************************"
+        puts "adding pyaer info....."
+        puts options.inspect
+        
+        if options[:billing_address]
+          xml.tag! 'n2:BillingAddress' do
+            xml.tag! 'n2:Name', options[:billing_address][:name]
+            xml.tag! 'n2:Street1', options[:billing_address][:address1]
+            xml.tag! 'n2:Street2', options[:billing_address][:address2]
+            xml.tag! 'n2:CityName', options[:billing_address][:city]
+            xml.tag! 'n2:StateOrProvince', options[:billing_address][:state].blank? ? 'N/A' : options[:billing_address][:state]
+            xml.tag! 'n2:Country', options[:billing_address][:country]
+            xml.tag! 'n2:PostalCode', options[:billing_address][:zip]
+          end
+        end
       end
 
       def build_create_billing_agreement_request(token, options = {})
