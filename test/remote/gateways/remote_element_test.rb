@@ -8,6 +8,7 @@ class RemoteElementTest < Test::Unit::TestCase
     @credit_card = credit_card('4000100011112224')
     @check = check
     @options = {
+      order_id: '1',
       billing_address: address,
       description: 'Store Purchase'
     }
@@ -17,6 +18,8 @@ class RemoteElementTest < Test::Unit::TestCase
     response = @gateway.purchase(@amount, @credit_card, @options)
     assert_success response
     assert_equal 'Approved', response.message
+    assert_match %r{Street address and postal code do not match}, response.avs_result['message']
+    assert_match %r{CVV matches}, response.cvv_result['message']
   end
 
   def test_failed_purchase
@@ -41,6 +44,54 @@ class RemoteElementTest < Test::Unit::TestCase
     assert_equal 'Approved', response.message
   end
 
+  def test_successful_purchase_with_shipping_address
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(shipping_address: address(address1: 'Shipping')))
+    assert_success response
+    assert_equal 'Approved', response.message
+  end
+
+  def test_successful_purchase_with_card_present_code
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(card_present_code: 'Present'))
+    assert_success response
+    assert_equal 'Approved', response.message
+  end
+
+  def test_successful_purchase_with_payment_type
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(payment_type: 'NotUsed'))
+    assert_success response
+    assert_equal 'Approved', response.message
+  end
+
+  def test_successful_purchase_with_submission_type
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(submission_type: 'NotUsed'))
+    assert_success response
+    assert_equal 'Approved', response.message
+  end
+
+  def test_successful_purchase_with_duplicate_check_disable_flag
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(duplicate_check_disable_flag: true))
+    assert_success response
+    assert_equal 'Approved', response.message
+
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(duplicate_check_disable_flag: false))
+    assert_success response
+    assert_equal 'Approved', response.message
+
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(duplicate_check_disable_flag: 'true'))
+    assert_success response
+    assert_equal 'Approved', response.message
+
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(duplicate_check_disable_flag: 'xxx'))
+    assert_success response
+    assert_equal 'Approved', response.message
+  end
+
+  def test_successful_purchase_with_terminal_id
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(terminal_id: '02'))
+    assert_success response
+    assert_equal 'Approved', response.message
+  end
+
   def test_successful_authorize_and_capture
     auth = @gateway.authorize(@amount, @credit_card, @options)
     assert_success auth
@@ -61,7 +112,7 @@ class RemoteElementTest < Test::Unit::TestCase
     auth = @gateway.authorize(@amount, @credit_card, @options)
     assert_success auth
 
-    assert capture = @gateway.capture(@amount-1, auth.authorization)
+    assert capture = @gateway.capture(@amount - 1, auth.authorization)
     assert_success capture
   end
 
@@ -84,7 +135,7 @@ class RemoteElementTest < Test::Unit::TestCase
     purchase = @gateway.purchase(@amount, @credit_card, @options)
     assert_success purchase
 
-    assert refund = @gateway.refund(@amount-1, purchase.authorization)
+    assert refund = @gateway.refund(@amount - 1, purchase.authorization)
     assert_success refund
   end
 
@@ -112,7 +163,7 @@ class RemoteElementTest < Test::Unit::TestCase
   def test_successful_verify
     response = @gateway.verify(@credit_card, @options)
     assert_success response
-    assert_match %r{Approved}, response.message
+    assert_equal 'Success', response.message
   end
 
   def test_successful_store
